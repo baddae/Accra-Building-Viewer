@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Accra Building Viewer</title>
+    <title>Accra Buildings Viewer</title>
     <link rel="stylesheet" href="https://js.arcgis.com/4.31/esri/themes/light/main.css">
     <style>
         html, body, #viewDiv {
@@ -61,6 +61,32 @@
         /* Add padding to the map container to avoid overlapping with the header */
         #viewDiv {
             padding-top: 40px; /* Match the height of the header */
+        }
+
+        /* Side panel styling */
+        #sidePanel {
+            position: fixed;
+            top: 100px; /* Adjusted to avoid overlapping with the search widget */
+            right: 0;
+            width: 300px; /* Width of the side panel */
+            height: calc(100% - 100px); /* Full height minus header and search widget */
+            background: white;
+            box-shadow: -2px 0 4px rgba(0, 0, 0, 0.2);
+            z-index: 1000; /* Ensure it appears above the map */
+            overflow-y: auto; /* Enable scrolling */
+            padding: 20px;
+            display: none; /* Hidden by default */
+        }
+
+        /* Close button styling */
+        #closeSidePanel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
         }
 
         /* Welcome message widget styling */
@@ -124,6 +150,13 @@
     <!-- Map container -->
     <div id="viewDiv"></div>
 
+    <!-- Side panel for feature info -->
+    <div id="sidePanel">
+        <button id="closeSidePanel">X</button>
+        <h2>Feature Information</h2>
+        <div id="featureInfo"></div>
+    </div>
+
     <!-- Search widget -->
     <div id="searchDiv"></div>
 
@@ -153,14 +186,14 @@
             "esri/widgets/BasemapToggle",
             "esri/widgets/Home",
             "esri/core/promiseUtils",
-            "esri/symbols/PictureMarkerSymbol" // Add this line
+            "esri/symbols/PictureMarkerSymbol"
         ], function(
             Map, MapView, FeatureLayer, Graphic, GraphicsLayer, Search,
-            BasemapToggle, Home, promiseUtils, PictureMarkerSymbol // Add PictureMarkerSymbol here
+            BasemapToggle, Home, promiseUtils, PictureMarkerSymbol
         ) {
             // Create the map
             const map = new Map({
-                basemap: "gray-vector"
+                basemap: "osm"
             });
 
             // Create the view
@@ -168,7 +201,7 @@
                 container: "viewDiv",
                 map: map,
                 center: [-0.2, 5.6], // Center on Greater Accra, Ghana
-                zoom: 12,
+                zoom: 17.5,
                 popup: {
                     dockEnabled: true, // Dock the popup
                     dockOptions: {
@@ -190,53 +223,22 @@
                     type: "simple",
                     symbol: {
                         type: "simple-fill",
-                        color: [0, 0, 0, 0], // No fill color
+                        style: "cross", // Diagonal cross fill
+                        color: [210, 180, 140, 0.8], // Light brown fill with 50% opacity
                         outline: {
                             color: [105, 105, 105], // Dark gray outline
                             width: 1
                         }
                     }
-                },
-                popupTemplate: {
-                    title: "Building Information",
-                    content: [
-                        {
-                            type: "fields",
-                            fieldInfos: [
-                                { fieldName: "Building_i", label: "Building ID" },
-                                { fieldName: "owner", label: "Owner" },
-                                { fieldName: "Year_Built", label: "Year Built" },
-                                { fieldName: "Area", label: "Total Building Area" },
-                                { fieldName: "Number_of_", label: "Number of Floors" },
-                                { fieldName: "Building_v", label: "Building Value" },
-                                { fieldName: "Land_Area", label: "Total Land Size" },
-                                { fieldName: "Land_Title", label: "Land Title Status" },
-                                { fieldName: "Valuation_", label: "Valuation Year" },
-                                { fieldName: "Tax_Rate", label: "Tax Rate" },
-                                { fieldName: "Annual_Pro", label: "Annual Property Tax" }
-                            ]
-                        }
-                    ]
                 }
             });
             map.add(buildingsLayer);
 
             // Add the digital addresses layer with transparency
             const digitalAddressLayer = new FeatureLayer({
-                url: "https://services.arcgis.com/E5vyYQKPMX5X3R3H/arcgis/rest/services/GAMA_NEW_Digital_Addresses1/FeatureServer",
+                url: "https://services.arcgis.com/E5vyYQKPMX5X3R3H/arcgis/rest/services/GAMA_NEW_Digital_Addresses2/FeatureServer",
                 outFields: ["*"],
-                opacity: 0, // Make the layer fully transparent
-                popupTemplate: {
-                    title: "Digital Address",
-                    content: [
-                        {
-                            type: "fields",
-                            fieldInfos: [
-                                { fieldName: "digital_ad", label: "Digital Address" }
-                            ]
-                        }
-                    ]
-                }
+                opacity: 0.01 // Make the layer almost transparent but still interactable
             });
             map.add(digitalAddressLayer);
 
@@ -335,6 +337,7 @@
                 view.hitTest(event).then(async function(response) {
                     // Filter out graphics from the digitalAddressLayer
                     const buildingGraphic = response.results.find(result => result.graphic.layer === buildingsLayer)?.graphic;
+                    const digitalAddressGraphic = response.results.find(result => result.graphic.layer === digitalAddressLayer)?.graphic;
 
                     // Highlight only the buildings layer polygons (skip digitalAddressLayer)
                     if (buildingGraphic) {
@@ -352,53 +355,49 @@
                         highlightLayer.add(highlightGraphic);
                     }
 
-                    // Create an array to hold popup content
-                    const popupContent = [];
+                    // Show the side panel
+                    const sidePanel = document.getElementById("sidePanel");
+                    const featureInfo = document.getElementById("featureInfo");
+                    sidePanel.style.display = "block";
 
-                    // Add building information to the popup content
+                    // Clear previous feature info
+                    featureInfo.innerHTML = "";
+
+                    // Add building information to the side panel
                     if (buildingGraphic) {
-                        popupContent.push({
-                            type: "fields",
-                            title: "Building Information",
-                            fieldInfos: [
-                                { fieldName: "Building_i", label: "Building ID" },
-                                { fieldName: "owner", label: "Owner" },
-                                { fieldName: "Year_Built", label: "Year Built" },
-                                { fieldName: "Area", label: "Total Building Area" },
-                                { fieldName: "Number_of_", label: "Number of Floors" },
-                                { fieldName: "Building_v", label: "Building Value" },
-                                { fieldName: "Land_Area", label: "Total Land Size" },
-                                { fieldName: "Land_Title", label: "Land Title Status" },
-                                { fieldName: "Valuation_", label: "Valuation Year" },
-                                { fieldName: "Tax_Rate", label: "Tax Rate" },
-                                { fieldName: "Annual_Pro", label: "Annual Property Tax" }
-                            ],
-                            graphic: buildingGraphic
-                        });
+                        const attributes = buildingGraphic.attributes;
+                        const info = `
+                            <h3>Building Information</h3>
+                            <p><strong>Building ID:</strong> ${attributes.Building_i}</p>
+                            <p><strong>Owner:</strong> ${attributes.owner}</p>
+                            <p><strong>Year Built:</strong> ${attributes.Year_Built}</p>
+                            <p><strong>Total Building Area:</strong> ${attributes.Area}</p>
+                            <p><strong>Number of Floors:</strong> ${attributes.Number_of_}</p>
+                            <p><strong>Building Value:</strong> ${parseFloat(attributes.Building_v).toFixed(2)}</p>
+                            <p><strong>Total Land Size:</strong> ${attributes.Land_Area}</p>
+                            <p><strong>Land Title Status:</strong> ${attributes.Land_Title}</p>
+                            <p><strong>Valuation Year:</strong> ${attributes.Valuation_}</p>
+                            <p><strong>Tax Rate:</strong> ${attributes.Tax_Rate}</p>
+                            <p><strong>Annual Property Tax:</strong> ${parseFloat(attributes.Annual_Pro).toFixed(2)}</p>
+                        `;
+                        featureInfo.innerHTML = info;
                     }
 
-                    // Add digital address information to the popup content
-                    const digitalAddressGraphic = response.results.find(result => result.graphic.layer === digitalAddressLayer)?.graphic;
+                    // Add digital address information to the side panel
                     if (digitalAddressGraphic) {
-                        popupContent.push({
-                            type: "fields",
-                            title: "Digital Address",
-                            fieldInfos: [
-                                { fieldName: "digital_ad", label: "Digital Address" }
-                            ],
-                            graphic: digitalAddressGraphic
-                        });
-                    }
-
-                    // Display the combined popup content
-                    if (popupContent.length > 0) {
-                        view.popup.open({
-                            features: [buildingGraphic, digitalAddressGraphic].filter(Boolean), // Filter out null values
-                            content: popupContent,
-                            location: event.mapPoint
-                        });
+                        const attributes = digitalAddressGraphic.attributes;
+                        const info = `
+                            <h3>Digital Address</h3>
+                            <p><strong>Digital Address:</strong> ${attributes.digital_ad}</p>
+                        `;
+                        featureInfo.innerHTML += info;
                     }
                 });
+            });
+
+            // Close the side panel when the close button is clicked
+            document.getElementById("closeSidePanel").addEventListener("click", function() {
+                document.getElementById("sidePanel").style.display = "none";
             });
 
             // Show the welcome message when the app loads
